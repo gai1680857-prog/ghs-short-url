@@ -1,0 +1,19 @@
+name = "ghs-short-url"
+main = "src/worker.js"
+compatibility_date = "2025-01-01"
+
+# KV Namespace for short URLs mapping
+[[kv_namespaces]]
+binding = "URLS"
+id = "acc83965f03f42789031881a4543a995"
+
+# KV Namespace for click analytics
+[[kv_namespaces]]
+binding = "CLICKS"
+id = "3c25355b2527444a96a57d0b24ccec0d"
+
+# Admin password (use wrangler secret put ADMIN_KEY)
+# Never put secrets here
+
+[vars]
+DOMAIN = "s.gaifun888.tw"
