@@ -17,6 +17,11 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
+    // === Health Check ===
+    if (path === '/health') {
+      return new Response(JSON.stringify({ status: 'ok', service: 'ghs-short-url', time: new Date().toISOString() }), { headers: { 'Content-Type': 'application/json' }});
+    }
+
     // === API Routes ===
     if (path.startsWith('/api/')) {
       return handleAPI(request, env, url, corsHeaders);
