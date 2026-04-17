@@ -1,19 +1,35 @@
 name = "ghs-short-url"
-main = "src/worker.js"
+main = "src/index.ts"
 compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
 
-# KV Namespace for short URLs mapping
+[vars]
+DOMAIN = "s.gaifun888.tw"
+
+# KV: short URL mapping (fast lookup)
 [[kv_namespaces]]
 binding = "URLS"
 id = "acc83965f03f42789031881a4543a995"
 
-# KV Namespace for click analytics
+# KV: legacy click storage (kept for back-compat; new writes go to D1)
 [[kv_namespaces]]
 binding = "CLICKS"
 id = "3c25355b2527444a96a57d0b24ccec0d"
 
-# Admin password (use wrangler secret put ADMIN_KEY)
-# Never put secrets here
+# D1: analytics database (clicks + aggregates)
+[[d1_databases]]
+binding = "DB"
+database_name = "ghs-short-url"
+database_id = "2399dd10-d953-46d4-a1c9-735158056381"
+migrations_dir = "migrations"
 
-[vars]
-DOMAIN = "s.gaifun888.tw"
+# Static assets (admin UI)
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# Observability
+[observability]
+enabled = true
+
+# Admin password: use `wrangler secret put ADMIN_KEY`

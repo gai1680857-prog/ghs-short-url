@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GHS Short URL Admin</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0e17;color:#e2e8f0;font-family:system-ui,sans-serif;padding:20px;max-width:900px;margin:0 auto}
+h1{font-size:22px;font-weight:900;margin-bottom:16px;background:linear-gradient(135deg,#FF6B35,#00D4AA);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+h3{font-size:15px;margin-bottom:10px}
+.card{background:rgba(17,24,39,0.7);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:20px;margin:12px 0}
+input,button{font-size:14px;padding:10px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:#e2e8f0;width:100%;margin:4px 0;font-family:inherit}
+button{background:linear-gradient(135deg,#FF6B35,#00D4AA);color:#0a0e17;font-weight:700;cursor:pointer;border:none}
+button:hover{opacity:0.9}
+button:disabled{opacity:0.5;cursor:not-allowed}
+.url-item{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.04);gap:12px}
+.url-item:last-child{border:none}
+.url-info{flex:1;min-width:0}
+.slug{color:#00D4AA;font-weight:700;font-family:monospace}
+.target{font-size:12px;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clicks{color:#FF6B35;font-family:monospace;font-size:13px;white-space:nowrap}
+.del{background:#ef4444;padding:6px 12px;width:auto;font-size:11px;border-radius:6px;color:#fff}
+.row{display:grid;grid-template-columns:1fr 2fr;gap:8px}
+.status{font-size:13px;color:#94a3b8;margin-top:8px;min-height:18px}
+.status.err{color:#ef4444}
+.status.ok{color:#00D4AA}
+.login-wrap{text-align:center;padding:60px 20px}
+.actions{display:flex;gap:6px;align-items:center}
+</style>
+</head>
+<body>
+<div id="login-section" class="login-wrap">
+  <h1>GHS Short URL</h1>
+  <div class="card" style="max-width:360px;margin:20px auto">
+    <input type="password" id="key-input" placeholder="Admin Key" autofocus>
+    <button id="login-btn">Login</button>
+    <div id="login-status" class="status"></div>
+  </div>
+</div>
+
+<div id="main-section" style="display:none">
+  <h1>GHS Short URL Admin</h1>
+  <div class="card">
+    <h3>Create New</h3>
+    <div class="row">
+      <input id="slug" placeholder="slug (e.g. apr-promo)">
+      <input id="target" placeholder="https://destination-url.com">
+    </div>
+    <button id="create-btn" style="margin-top:8px">Create Short URL</button>
+    <div id="create-status" class="status"></div>
+  </div>
+  <div class="card">
+    <h3>All URLs</h3>
+    <div id="url-list">Loading…</div>
+  </div>
+</div>
+
+<script>
+const api = (path, opts = {}) =>
+  fetch(path, { ...opts, headers: { ...(opts.headers || {}), Authorization: 'Bearer ' + KEY } })
+    .then(async r => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.statusText); return j; });
+
+let KEY = sessionStorage.getItem('ghs_admin_key') || '';
+
+const $ = (id) => document.getElementById(id);
+const showLogin = () => { $('login-section').style.display = 'block'; $('main-section').style.display = 'none'; };
+const showMain = () => { $('login-section').style.display = 'none'; $('main-section').style.display = 'block'; loadList(); };
+
+async function login() {
+  KEY = $('key-input').value.trim();
+  if (!KEY) return;
+  const btn = $('login-btn'); btn.disabled = true;
+  try {
+    await api('/api/list');
+    sessionStorage.setItem('ghs_admin_key', KEY);
+    showMain();
+  } catch (e) {
+    $('login-status').textContent = 'Wrong key';
+    $('login-status').className = 'status err';
+  } finally { btn.disabled = false; }
+}
+
+async function create() {
+  const slug = $('slug').value.trim();
+  const target = $('target').value.trim();
+  if (!slug || !target) return;
+  const btn = $('create-btn'); btn.disabled = true;
+  const s = $('create-status');
+  try {
+    const data = await api('/api/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug, target }),
+    });
+    s.textContent = 'Created: ' + data.short; s.className = 'status ok';
+    $('slug').value = ''; $('target').value = '';
+    loadList();
+  } catch (e) {
+    s.textContent = 'Error: ' + e.message; s.className = 'status err';
+  } finally { btn.disabled = false; }
+}
+
+async function loadList() {
+  const el = $('url-list');
+  try {
+    const data = await api('/api/list');
+    if (!data.urls?.length) { el.innerHTML = '<p style="color:#94a3b8">No URLs yet</p>'; return; }
+    const sorted = data.urls.sort((a, b) => b.clicks - a.clicks);
+    el.replaceChildren(...sorted.map(renderItem));
+  } catch (e) {
+    el.textContent = 'Load failed: ' + e.message;
+  }
+}
+
+function renderItem(u) {
+  const row = document.createElement('div'); row.className = 'url-item';
+  const info = document.createElement('div'); info.className = 'url-info';
+  const slug = document.createElement('span'); slug.className = 'slug'; slug.textContent = '/' + u.slug;
+  const target = document.createElement('div'); target.className = 'target'; target.textContent = u.target;
+  info.append(slug, target);
+
+  const actions = document.createElement('div'); actions.className = 'actions';
+  const clicks = document.createElement('span'); clicks.className = 'clicks'; clicks.textContent = u.clicks + ' clicks';
+  const del = document.createElement('button'); del.className = 'del'; del.textContent = 'Delete';
+  del.onclick = () => removeUrl(u.slug);
+  actions.append(clicks, del);
+
+  row.append(info, actions);
+  return row;
+}
+
+async function removeUrl(slug) {
+  if (!confirm('Delete /' + slug + '?')) return;
+  try { await api('/api/delete/' + encodeURIComponent(slug), { method: 'DELETE' }); loadList(); }
+  catch (e) { alert('Delete failed: ' + e.message); }
+}
+
+$('login-btn').onclick = login;
+$('key-input').onkeydown = (e) => { if (e.key === 'Enter') login(); };
+$('create-btn').onclick = create;
+
+if (KEY) {
+  api('/api/list').then(showMain).catch(() => { KEY = ''; sessionStorage.removeItem('ghs_admin_key'); showLogin(); });
+}
+</script>
+</body>
+</html>
