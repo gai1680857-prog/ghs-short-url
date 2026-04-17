@@ -1,0 +1,106 @@
+/// <reference types="@cloudflare/vitest-pool-workers" />
+import { env, createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
+import { describe, it, expect, beforeAll } from "vitest";
+import app from "../src/index";
+
+const authed = (init: RequestInit = {}) => ({
+  ...init,
+  headers: { ...(init.headers || {}), Authorization: "Bearer test-key" },
+});
+
+async function run(request: Request) {
+  const ctx = createExecutionContext();
+  const res = await app.fetch(request, env as any, ctx);
+  await waitOnExecutionContext(ctx);
+  return res;
+}
+
+beforeAll(async () => {
+  await (env as any).DB.exec(
+    "CREATE TABLE IF NOT EXISTS clicks (id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL, ts INTEGER NOT NULL, ip TEXT, country TEXT, city TEXT, ua TEXT, referer TEXT)"
+  );
+});
+
+describe("health", () => {
+  it("returns ok", async () => {
+    const res = await run(new Request("http://s.test/health"));
+    expect(res.status).toBe(200);
+    const body = await res.json<{ status: string }>();
+    expect(body.status).toBe("ok");
+  });
+});
+
+describe("auth", () => {
+  it("rejects unauthenticated API calls", async () => {
+    const res = await run(new Request("http://s.test/api/list"));
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("create + redirect + stats", () => {
+  it("full flow", async () => {
+    const create = await run(
+      new Request(
+        "http://s.test/api/create",
+        authed({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slug: "promo", target: "https://example.com/promo" }),
+        })
+      )
+    );
+    expect(create.status).toBe(200);
+
+    const dup = await run(
+      new Request(
+        "http://s.test/api/create",
+        authed({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slug: "promo", target: "https://example.com/x" }),
+        })
+      )
+    );
+    expect(dup.status).toBe(409);
+
+    const redir = await run(new Request("http://s.test/promo", { redirect: "manual" }));
+    expect(redir.status).toBe(301);
+    expect(redir.headers.get("location")).toBe("https://example.com/promo");
+
+    const missing = await run(new Request("http://s.test/nope", { redirect: "manual" }));
+    expect(missing.status).toBe(404);
+
+    const stats = await run(new Request("http://s.test/api/stats/promo", authed()));
+    expect(stats.status).toBe(200);
+    const body = await stats.json<{ totalClicks: number }>();
+    expect(body.totalClicks).toBeGreaterThanOrEqual(1);
+  });
+
+  it("rejects invalid slug", async () => {
+    const res = await run(
+      new Request(
+        "http://s.test/api/create",
+        authed({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slug: "bad slug!", target: "https://example.com" }),
+        })
+      )
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects invalid URL", async () => {
+    const res = await run(
+      new Request(
+        "http://s.test/api/create",
+        authed({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slug: "valid", target: "not-a-url" }),
+        })
+      )
+    );
+    expect(res.status).toBe(400);
+  });
+});
